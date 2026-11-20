@@ -29,7 +29,7 @@ The code runs locally or with Docker Compose. A separate Compose file is a start
 - Packages HTTPS termination, health checks, metrics, alert rules, secret files, database backup, and restore verification for a reproducible single-server deployment.
 
 These figures describe the current repository and are intended to be auditable from the source and CI workflow; they are not synthetic traffic or latency claims.
-<img src="docs/tests-cropped.png" width="100%" alt="Go test Suite - race detector enabled " />
+<img src="docs/screenshots/tests-cropped.png" width="100%" alt="Go test Suite - race detector enabled " />
 
 ## Architecture
 
