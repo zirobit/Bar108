@@ -1,129 +1,26 @@
-<div align="center">
+# Bar 108 API
 
+[English](README.md) · [Русский](README.ru.md) · [CI](https://github.com/bytepharaoh/Bar108/actions/workflows/ci.yml)
 
-<img src="docs/logo.svg" width="120" alt="Bar 108"/>
+Bar 108 is a Go HTTP API for a restaurant ordering workflow. It supports customer accounts, a menu, orders, status history, promotions, and admin operations. This repository contains the backend and deployment configuration. It does not contain a customer app, payment integration, courier app, or live location tracking. “Tracking” means reading recorded order statuses over HTTP.
 
-# BAR 108
+The code runs locally or with Docker Compose. A separate Compose file is a starting point for deployment on one server. A green CI run confirms the checked code builds and passes its tests; it does not confirm that a particular server, backup schedule, or alert receiver is configured.
 
-**A real backend for a real restaurant — built to learn, deployed to production.**
+## Architecture
 
-*Go · PostgreSQL · Docker · JWT · SQLC · Goose · gomock*
+```text
+HTTP client → Gin handlers → services → repositories → PostgreSQL
+                  │                │
+                  └── JWT auth     └── Redis for revocation, rate limits, and cache
+```
 
-<br/>
+Handlers parse requests and check resource ownership. Services validate business rules. Repositories use sqlc generated queries and transactions for multi-step writes. Goose applies migrations at application startup. PostgreSQL is the source of truth for accounts and orders. Authenticated requests check the current account state in PostgreSQL, so deactivation and role changes take effect on the next request.
 
-[![Go](https://img.shields.io/badge/Go-1.22-00ADD8?style=flat-square&logo=go&logoColor=white)](https://go.dev)
-[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?style=flat-square&logo=postgresql&logoColor=white)](https://postgresql.org)
-[![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=flat-square&logo=docker&logoColor=white)](https://docker.com)
-[![CI](https://img.shields.io/github/actions/workflow/status/bytepharaoh/Bar108/ci.yml?style=flat-square&label=CI)](https://github.com/bytepharaoh/Bar108/actions)
-[![License](https://img.shields.io/badge/License-MIT-FF4D00?style=flat-square)](LICENSE)
+The main tools are Go 1.26.11, Gin, PostgreSQL 16, Redis 7, sqlc, Goose, JWT with bcrypt, Docker Compose, Caddy, Prometheus, and Alertmanager. The production Compose setup targets one host; it is not a high availability design.
 
-</div>
+## Run locally
 
----
-
-Bar 108 is the backend for a restaurant in Innopolis, Russia. Customers register, browse the menu, place orders, track delivery in real time, and earn bonus points. Admins manage the menu, process orders, and assign couriers.
-
-This started as a learning project and turned into something I'm genuinely proud of — a production-ready API with proper layered architecture, JWT auth, database transactions, comprehensive tests, and Docker deployment. Every decision is documented here so you can understand not just *what* but *why*.
-
----
-
-## How it works
-
-<img src="docs/architecture.svg" width="100%" alt="Architecture"/>
-
-The codebase follows a strict three-layer pattern:
-
-**Handlers** receive HTTP requests, parse them, and call the service. They know nothing about the database.
-
-**Services** hold the business logic — validation, status transition rules, ownership checks, price calculations. They know nothing about HTTP.
-
-**Repositories** talk to PostgreSQL. They know nothing about HTTP or business rules.
-
-This separation means every layer can be tested in isolation. The handler tests use a mock service. The service tests use a mock repository. Neither touches a real database.
-
----
-
-## Tech stack
-
-<img src="docs/stack.svg" width="100%" alt="Tech Stack"/>
-
-|            | What               | Why                                                          |
-| ---------- | ------------------ | ------------------------------------------------------------ |
-| Language   | Go 1.22 + Gin      | Fast compile times, great standard library, explicit error handling |
-| Database   | PostgreSQL 16      | ACID transactions, strong constraints, battle-tested         |
-| Queries    | SQLC               | Write real SQL, get type-safe Go code generated — no ORM magic |
-| Migrations | Goose              | Versioned up/down migrations, runs automatically at startup  |
-| Auth       | JWT + bcrypt       | Stateless tokens, bcrypt for password hashing (cost 12)      |
-| Testing    | gomock + testify   | Generated mocks, table-driven tests, race detector           |
-| Deploy     | Docker multi-stage | 13MB final image, no Go toolchain in production              |
-| CI         | GitHub Actions     | Lint + test + build on every push                            |
-
----
-
-## Auth flow
-
-<img src="docs/auth_flow.svg" width="100%" alt="Auth Flow"/>
-
-Passwords are hashed with bcrypt before they ever touch the database. JWTs carry `user_id` and `role` in the payload. Each authenticated request checks the current user in PostgreSQL, so deactivation and role changes take effect immediately. Ownership checks restrict customers to their own orders and profiles.
-
----
-
-## API reference
-
-### Public — no token needed
-
-| Method | Endpoint         | Description                 |
-| ------ | ---------------- | --------------------------- |
-| `POST` | `/auth/register` | Create account, returns JWT |
-| `POST` | `/auth/login`    | Login, returns JWT          |
-| `GET`  | `/menu`          | All available menu items    |
-| `GET`  | `/menu/:id`      | Single menu item            |
-| `GET`  | `/categories`    | All categories              |
-| `GET`  | `/ping`          | Health check                |
-
-### Customer — requires JWT
-
-| Method  | Endpoint             | Description          |
-| ------- | -------------------- | -------------------- |
-| `POST`  | `/orders`            | Place an order       |
-| `GET`   | `/orders/:id`        | View your order      |
-| `GET`   | `/orders/:id/track`  | Full status timeline |
-| `GET`   | `/orders/:id/items`  | Items in an order    |
-| `PATCH` | `/orders/:id/cancel` | Cancel your order    |
-| `GET`   | `/users/:id/orders`  | Your order history   |
-| `GET`   | `/users/:id`         | Your profile         |
-| `PUT`   | `/users/:id`         | Update your profile  |
-
-### Admin — requires JWT with `role: admin`
-
-| Method   | Endpoint                | Description           |
-| -------- | ----------------------- | --------------------- |
-| `GET`    | `/orders`               | All orders            |
-| `GET`    | `/orders/pending`       | Unprocessed orders    |
-| `PATCH`  | `/orders/:id/status`    | Update order status   |
-| `PATCH`  | `/orders/:id/courier`   | Assign courier        |
-| `POST`   | `/menu`                 | Add menu item         |
-| `PUT`    | `/menu/:id`             | Update menu item      |
-| `DELETE` | `/menu/:id`             | Remove menu item      |
-| `GET`    | `/users`                | All users             |
-| `PATCH`  | `/users/:id/activate`   | Activate user         |
-| `PATCH`  | `/users/:id/deactivate` | Deactivate user       |
-| `GET`    | `/couriers`             | All couriers          |
-| `PATCH`  | `/couriers/:id/status`  | Update courier status |
-
----
-
-## Order flow
-
-<img src="docs/order_flow.svg" width="100%" alt="Order Flow"/>
-
-Status transitions are validated at the service layer — you can't skip states or go backwards. Every change is recorded in `order_status_history` with a timestamp, giving customers a full timeline when they track their order.
-
----
-
-## Running locally
-
-You need Go 1.26.11+ and Docker. PostgreSQL and Redis run in containers.
+Requirements: Go 1.26.11 or newer, Docker with Compose, and `make` for the commands below.
 
 ```bash
 git clone https://github.com/bytepharaoh/Bar108.git
@@ -131,129 +28,65 @@ cd Bar108
 cp .env.example .env
 ```
 
-Open `.env` and fill in your values — pay attention to `JWT_SECRET`, it should be a long random string:
+Edit `.env` before starting. Its database password and JWT secret are development examples. Give `JWT_SECRET` a fresh random value, for example with `openssl rand -hex 32`. Keep `.env` out of Git.
 
 ```bash
-openssl rand -hex 32   # generates a good secret
+make db-up       # start PostgreSQL and Redis
+make run         # connect, apply Goose migrations, start HTTP on port 8080
 ```
 
-Start PostgreSQL and Redis:
+In another terminal, check `curl http://localhost:8080/ping`. `GET /ready` checks PostgreSQL and Redis and returns 503 when either is unavailable. To run the whole development stack in containers, use `docker compose up -d --build` after creating `.env`, then `docker compose logs -f app`. The development Compose file binds database and Redis ports to localhost. Stop containers with `docker compose down`; named data volumes remain.
 
-```bash
-make db-up
-```
-
-Start the server. Goose applies pending migrations during startup:
-
-```bash
-make run
-```
-
-Test it's alive:
-
-```bash
-curl http://localhost:8080/ping
-# {"status":"ok","message":"pong"}
-```
-
-Register an account and grab your token:
+Example request sequence:
 
 ```bash
 curl -X POST http://localhost:8080/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{"name":"Ahmed","phone":"+79001234567","email":"you@example.com","password":"secret123"}'
-```
+  -H 'Content-Type: application/json' \
+  -d '{"name":"Ahmed","phone":"+79001234567","email":"you@example.com","password":"change-this-password"}'
 
-Use the token to place an order:
-
-```bash
+# Copy the token from the response into your shell:
+TOKEN='paste-token-here'
 curl -X POST http://localhost:8080/orders \
-  -H "Authorization: Bearer YOUR_TOKEN" \
-  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
   -d '{"items":[{"menu_item_id":1,"quantity":2}]}'
 ```
 
----
+The server takes the order's user ID from the token. Menu IDs 1–5 are created by the seed migration for a fresh database; check `GET /menu` when using existing data.
 
-## Running with Docker
+## API overview
 
-This builds a ~13MB production image using multi-stage builds — no Go toolchain, no source code, just the binary.
+All endpoints return JSON. Protected endpoints require `Authorization: Bearer <token>`. Customers can access their own profiles and orders; admins can manage restaurant data. There is no public admin registration route: provision the initial admin role through a controlled database operation.
 
-```bash
-cp .env.example .env
-# fill in .env values
+| Access | Methods and paths | Purpose |
+| --- | --- | --- |
+| Public | `GET /ping`, `GET /menu`, `GET /menu/:id`, `GET /categories` | Liveness and menu reads |
+| Public | `POST /auth/register`, `POST /auth/login` | Account creation and login; rate limited per client IP |
+| Signed in | `POST /auth/logout` | Revoke the current token in Redis |
+| Signed in | `POST /orders`, `GET /orders/:id`, `GET /orders/:id/items`, `GET /orders/:id/track`, `PATCH /orders/:id/cancel` | Place, inspect, track, or cancel an owned order |
+| Signed in | `GET /users/:id`, `PUT /users/:id`, `GET /users/:id/orders` | Own profile and orders; admins may inspect other users |
+| Admin | `GET /orders`, `GET /orders/pending`, `PATCH /orders/:id/status`, `PATCH /orders/:id/courier` | Order operations |
+| Admin | `POST /menu`, `PUT /menu/:id`, `DELETE /menu/:id` | Menu management |
+| Admin | `GET /users`, `GET /users/active`, `PATCH /users/:id/activate`, `PATCH /users/:id/deactivate`, `PATCH /users/:id/bonus` | Account administration and manual bonus adjustment |
+| Admin | `GET /couriers`, `GET /couriers/available`, `GET /couriers/:id`, `PATCH /couriers/:id/status` | Courier records and availability |
+| Internal | `GET /ready`, `GET /metrics` | Dependency readiness and metrics; blocked by public Caddy route |
 
-docker compose up -d
-docker compose logs -f app
-```
+Order states progress through `pending → confirmed → preparing → ready → out_for_delivery → delivered`; cancellation is possible before a terminal state. Updates are guarded in SQL so competing writes cannot both apply the same transition. Order prices use decimal arithmetic and stored menu prices; item prices are copied into the order. Promotions have usage and expiry checks. Bonus points currently have a manual admin endpoint; automatic earning and redemption are not implemented.
 
-You should see:
-
-```
-bar108_app | database: connected successfully
-bar108_app | database: migrations applied successfully
-bar108_app | server: listening on :8080
-```
-
-Migrations run automatically at startup — you don't need Goose installed.
-
-To rebuild after code changes:
+## Tests and development
 
 ```bash
-docker compose up -d --build app
+go test -race -timeout 60s ./...
+go vet ./...
+make lint           # requires golangci-lint
+make sqlc           # requires sqlc only when changing SQL queries
 ```
 
-To stop everything:
+Handler and service tests use mocks. The repository integration test runs against PostgreSQL when `BAR108_TEST_DATABASE_URL` is set; CI supplies it, runs the race detector, builds the binary and Docker image, and validates deployment configuration. Without the variable, the integration test is skipped. Change SQL in `db/queries` and regenerate `internal/db` with sqlc; generated Go is not the source of truth.
 
-```bash
-docker compose down
-```
+## Single server deployment
 
----
-
-## Development commands
-
-```bash
-make run             # start the server
-make build           # compile to ./bin/
-make fmt             # format all Go files
-make lint            # run golangci-lint
-make check           # fmt + vet + lint (run before committing)
-make test            # all tests with race detector
-make test-coverage   # tests + open coverage report in browser
-make mocks           # regenerate all gomock mocks
-make sqlc            # regenerate SQLC code from SQL queries
-make db-up           # start PostgreSQL
-make db-shell        # open psql
-make docker-up       # start everything (db + app)
-make docker-down     # stop everything
-make docker-logs     # follow app logs
-make docker-restart  # rebuild and restart app
-```
-
----
-
-## Environment variables
-
-| Variable           | Description          | Example          |
-| ------------------ | -------------------- | ---------------- |
-| `APP_PORT`         | HTTP port            | `8080`           |
-| `APP_ENV`          | Environment          | `development`    |
-| `DB_HOST`          | PostgreSQL host      | `localhost`      |
-| `DB_PORT`          | PostgreSQL port      | `5432`           |
-| `DB_USER`          | Database user        | `bar108_user`    |
-| `DB_PASSWORD`      | Database password    | `bar108_pass`    |
-| `DB_NAME`          | Database name        | `bar108_db`      |
-| `DB_SSLMODE`       | SSL mode             | `disable`        |
-| `JWT_SECRET`       | Token signing secret | 32+ random chars |
-| `JWT_EXPIRY_HOURS` | Token lifetime       | `24`             |
-| `REDIS_HOST`       | Redis host           | `localhost`      |
-| `REDIS_PORT`       | Redis port           | `6379`           |
-| `RATE_LIMIT_AUTH_PER_MINUTE` | Authentication requests per IP per minute | `50` |
-
-## Production deployment
-
-The separate production Compose file runs Caddy for automatic HTTPS, PostgreSQL and Redis on private networks, Prometheus for request metrics, and Alertmanager for error and availability alerts. It expects a server with DNS for `BAR108_DOMAIN` pointing to it and inbound ports 80 and 443 open. Caddy needs these to obtain and renew certificates.
+`compose.production.yml` runs the API, PostgreSQL, Redis, Caddy, Prometheus, and Alertmanager. Only Caddy's HTTP/HTTPS ports and Prometheus on `127.0.0.1:9090` are published. Point the domain at the server and allow inbound TCP 80/443 (and UDP 443 for HTTP/3). Caddy obtains and renews certificates when public DNS and port access work. Protect access to the host's Docker socket, secret files, and backups.
 
 ```bash
 cp .env.production.example .env.production
@@ -261,53 +94,27 @@ cp .env.production.example .env.production
 mkdir -p secrets
 openssl rand -hex 32 > secrets/db_password
 openssl rand -hex 32 > secrets/jwt_secret
-# Put the URL of a receiver that accepts Alertmanager webhook JSON here:
+# Supply a real endpoint that accepts Alertmanager webhook JSON:
 printf '%s\n' 'https://your-alert-receiver.example/alerts' > secrets/alert_webhook_url
 chmod 600 secrets/* .env.production
 docker compose --env-file .env.production -f compose.production.yml up -d --build
 ```
 
-The alert URL must be a real receiver that accepts Alertmanager's webhook format. `/ready` checks PostgreSQL and Redis; Docker uses it for application health. Prometheus scrapes `/metrics` internally and evaluates rules for downtime and repeated server errors. Caddy blocks `/ready` and `/metrics` from public access. Prometheus is exposed only on `127.0.0.1:9090`, so use an SSH tunnel to view it remotely.
+The example alert URL will not deliver notifications. Prometheus evaluates rules for API availability and repeated server errors. View its local UI through an SSH tunnel. Add an external uptime check to detect a whole server outage; services on the same host cannot alert when that host is down.
 
-Create and test a PostgreSQL backup regularly:
+Goose runs pending migrations at API startup. Back up the database before a release, especially when a migration changes existing data. These scripts create a PostgreSQL archive and verify it by restoring into a temporary database:
 
 ```bash
 scripts/backup.sh
 scripts/verify-backup.sh backups/bar108-YYYYMMDDTHHMMSSZ.dump
 ```
 
-Schedule `scripts/backup.sh` and `scripts/verify-backup.sh` with cron or a systemd timer, copy backups to separate storage, and set a retention policy. The verification script restores into a temporary database and removes it; it does not overwrite production. The production `.env`, secrets, and backups are ignored by Git and Docker builds. The integration test runs migrations and concurrent order updates against PostgreSQL in CI.
+Schedule the scripts on the host, copy backups off the server, define retention, and periodically test recovery. The scripts do not create a schedule or offsite storage. Keep `.env.production`, `secrets/`, and `backups/` out of version control. See [operations](docs/OPERATIONS.md) for release and recovery steps.
 
----
+## Current boundaries
 
-## Testing
-
-Handler and service tests run without external services. In CI, `BAR108_TEST_DATABASE_URL` enables a PostgreSQL integration test that applies migrations and checks concurrent order status updates.
-
-```bash
-make test
-```
-
-```
---- PASS: TestOrderService_UpdateOrderStatus/invalid_transition_—_delivered_to_pending
---- PASS: TestOrderService_AssignCourier/order_not_ready_—_pending
---- PASS: TestUserService_DeactivateUser/has_active_orders_—_conflict
---- PASS: TestMenuHandler_CreateMenuItem/missing_required_fields_—_400
---- PASS: TestOrderHandler_CancelOrder/forbidden_—_customer_cancels_other_user_order
-```
-
-Every test function covers the full range — happy path, not found, invalid input, edge cases, business rule violations, and database errors. Table-driven style keeps things readable as cases grow.
-
----
+The API has no payment processing, live delivery location, automated loyalty rules, or full client end-to-end tests. PostgreSQL and Redis run as single instances in the sample deployment. Redis is required for authenticated requests and logout; if it is unavailable, readiness fails and protected requests fail closed. Review data retention, privacy requirements, backup encryption, and initial admin provisioning for the real restaurant before accepting live customer data.
 
 ## License
 
-MIT — do whatever you want with it. See [LICENSE](LICENSE).
-
----
-
-<div align="center">
-
-
-Built By: Ziad Mohamed(BytePharaoh)
-</div>
+Licensed under the [MIT License](LICENSE), copyright © 2026 bytepharaoh. It permits use, modification, and redistribution if its copyright and permission notices are retained, and provides the software without warranty. Third-party dependencies retain their own licenses.
