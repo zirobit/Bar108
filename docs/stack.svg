@@ -4,7 +4,7 @@
 
   <!-- Go -->
   <rect x="20" y="44" width="100" height="56" rx="8" fill="#1A1A1A" stroke="#00ADD8" stroke-width="1.2"/>
-  <text x="70" y="68" text-anchor="middle" font-family="monospace" font-size="12" font-weight="bold" fill="#00ADD8">Go 1.22</text>
+  <text x="70" y="68" text-anchor="middle" font-family="monospace" font-size="12" font-weight="bold" fill="#00ADD8">Go 1.26</text>
   <text x="70" y="86" text-anchor="middle" font-family="monospace" font-size="9" fill="#444">+ Gin</text>
 
   <!-- PostgreSQL -->

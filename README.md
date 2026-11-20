@@ -1,12 +1,25 @@
-# Bar 108 API
-
-[English](README.md) · [Русский](README.ru.md) · [CI](https://github.com/bytepharaoh/Bar108/actions/workflows/ci.yml)
+<div align="center">
+  <img src="docs/logo.svg" width="120" alt="Bar 108 logo" />
+  <h1>Bar 108 API</h1>
+  <p><strong>Restaurant ordering backend in Go</strong></p>
+  <p>
+    <a href="https://github.com/bytepharaoh/Bar108/actions/workflows/ci.yml"><img src="https://github.com/bytepharaoh/Bar108/actions/workflows/ci.yml/badge.svg" alt="CI status" /></a>
+    <img src="https://img.shields.io/badge/Go-1.26.11-00ADD8?logo=go&amp;logoColor=white" alt="Go 1.26.11" />
+    <img src="https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&amp;logoColor=white" alt="PostgreSQL 16" />
+    <img src="https://img.shields.io/badge/Redis-7-DC382D?logo=redis&amp;logoColor=white" alt="Redis 7" />
+    <img src="https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&amp;logoColor=white" alt="Docker Compose" />
+    <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-green.svg" alt="MIT License" /></a>
+  </p>
+  <p><a href="README.md">English</a> · <a href="README.ru.md">Русский</a></p>
+</div>
 
 Bar 108 is a Go HTTP API for a restaurant ordering workflow. It supports customer accounts, a menu, orders, status history, promotions, and admin operations. This repository contains the backend and deployment configuration. It does not contain a customer app, payment integration, courier app, or live location tracking. “Tracking” means reading recorded order statuses over HTTP.
 
 The code runs locally or with Docker Compose. A separate Compose file is a starting point for deployment on one server. A green CI run confirms the checked code builds and passes its tests; it does not confirm that a particular server, backup schedule, or alert receiver is configured.
 
 ## Architecture
+
+<img src="docs/architecture.svg" width="100%" alt="Bar 108 request and data architecture" />
 
 ```text
 HTTP client → Gin handlers → services → repositories → PostgreSQL
@@ -17,6 +30,12 @@ HTTP client → Gin handlers → services → repositories → PostgreSQL
 Handlers parse requests and check resource ownership. Services validate business rules. Repositories use sqlc generated queries and transactions for multi-step writes. Goose applies migrations at application startup. PostgreSQL is the source of truth for accounts and orders. Authenticated requests check the current account state in PostgreSQL, so deactivation and role changes take effect on the next request.
 
 The main tools are Go 1.26.11, Gin, PostgreSQL 16, Redis 7, sqlc, Goose, JWT with bcrypt, Docker Compose, Caddy, Prometheus, and Alertmanager. The production Compose setup targets one host; it is not a high availability design.
+
+## Technology stack
+
+<img src="docs/stack.svg" width="100%" alt="Go, Gin, PostgreSQL, Docker, JWT, and Goose technology stack" />
+
+Redis supports token revocation, rate limiting, and caching. Caddy terminates HTTPS, while Prometheus and Alertmanager provide metrics and alert routing. These operational components extend the core application stack shown above.
 
 ## Run locally
 
@@ -53,6 +72,12 @@ curl -X POST http://localhost:8080/orders \
 ```
 
 The server takes the order's user ID from the token. Menu IDs 1–5 are created by the seed migration for a fresh database; check `GET /menu` when using existing data.
+
+## Authentication and order flow
+
+<img src="docs/auth_flow.svg" width="100%" alt="JWT authentication flow" />
+
+<img src="docs/order_flow.svg" width="100%" alt="Order lifecycle flow" />
 
 ## API overview
 
@@ -114,6 +139,10 @@ Schedule the scripts on the host, copy backups off the server, define retention,
 ## Current boundaries
 
 The API has no payment processing, live delivery location, automated loyalty rules, or full client end-to-end tests. PostgreSQL and Redis run as single instances in the sample deployment. Redis is required for authenticated requests and logout; if it is unavailable, readiness fails and protected requests fail closed. Review data retention, privacy requirements, backup encryption, and initial admin provisioning for the real restaurant before accepting live customer data.
+
+## Collaboration
+
+The project is open to collaboration. Bug fixes, tests, documentation improvements, and focused feature proposals are welcome—fork the repository and open a pull request. For a large behavioral change, open an issue first so the design and scope can be agreed before implementation. Keep pull requests focused, explain any user-visible or operational impact, update generated sqlc code when SQL changes, and make sure CI passes.
 
 ## License
 
