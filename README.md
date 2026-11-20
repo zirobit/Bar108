@@ -64,7 +64,7 @@ This separation means every layer can be tested in isolation. The handler tests 
 
 <img src="docs/auth_flow.svg" width="100%" alt="Auth Flow"/>
 
-Passwords are hashed with bcrypt before they ever touch the database. JWTs carry `user_id` and `role` in the payload — the server verifies the signature on every request without hitting the database. Ownership checks are enforced at the handler level: customers can only access their own orders and profiles.
+Passwords are hashed with bcrypt before they ever touch the database. JWTs carry `user_id` and `role` in the payload. Each authenticated request checks the current user in PostgreSQL, so deactivation and role changes take effect immediately. Ownership checks restrict customers to their own orders and profiles.
 
 ---
 
@@ -123,7 +123,7 @@ Status transitions are validated at the service layer — you can't skip states 
 
 ## Running locally
 
-You need Go 1.22+, Docker, and that's it. Everything else runs in containers.
+You need Go 1.26.11+ and Docker. PostgreSQL and Redis run in containers.
 
 ```bash
 git clone https://github.com/bytepharaoh/Bar108.git
@@ -137,14 +137,13 @@ Open `.env` and fill in your values — pay attention to `JWT_SECRET`, it should
 openssl rand -hex 32   # generates a good secret
 ```
 
-Start PostgreSQL and run migrations:
+Start PostgreSQL and Redis:
 
 ```bash
 make db-up
-make migrate-up
 ```
 
-Start the server:
+Start the server. Goose applies pending migrations during startup:
 
 ```bash
 make run
@@ -171,7 +170,7 @@ Use the token to place an order:
 curl -X POST http://localhost:8080/orders \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"user_id":1,"items":[{"menu_item_id":1,"quantity":2}]}'
+  -d '{"items":[{"menu_item_id":1,"quantity":2}]}'
 ```
 
 ---
@@ -225,11 +224,7 @@ make test-coverage   # tests + open coverage report in browser
 make mocks           # regenerate all gomock mocks
 make sqlc            # regenerate SQLC code from SQL queries
 make db-up           # start PostgreSQL
-make db-down         # stop PostgreSQL
 make db-shell        # open psql
-make migrate-up      # apply pending migrations
-make migrate-down    # roll back last migration
-make migrate-status  # show migration history
 make docker-up       # start everything (db + app)
 make docker-down     # stop everything
 make docker-logs     # follow app logs
@@ -252,12 +247,42 @@ make docker-restart  # rebuild and restart app
 | `DB_SSLMODE`       | SSL mode             | `disable`        |
 | `JWT_SECRET`       | Token signing secret | 32+ random chars |
 | `JWT_EXPIRY_HOURS` | Token lifetime       | `24`             |
+| `REDIS_HOST`       | Redis host           | `localhost`      |
+| `REDIS_PORT`       | Redis port           | `6379`           |
+| `RATE_LIMIT_AUTH_PER_MINUTE` | Authentication requests per IP per minute | `50` |
+
+## Production deployment
+
+The separate production Compose file runs Caddy for automatic HTTPS, PostgreSQL and Redis on private networks, Prometheus for request metrics, and Alertmanager for error and availability alerts. It expects a server with DNS for `BAR108_DOMAIN` pointing to it and inbound ports 80 and 443 open. Caddy needs these to obtain and renew certificates.
+
+```bash
+cp .env.production.example .env.production
+# Set BAR108_DOMAIN, DB_USER, and DB_NAME in .env.production.
+mkdir -p secrets
+openssl rand -hex 32 > secrets/db_password
+openssl rand -hex 32 > secrets/jwt_secret
+# Put the URL of a receiver that accepts Alertmanager webhook JSON here:
+printf '%s\n' 'https://your-alert-receiver.example/alerts' > secrets/alert_webhook_url
+chmod 600 secrets/* .env.production
+docker compose --env-file .env.production -f compose.production.yml up -d --build
+```
+
+The alert URL must be a real receiver that accepts Alertmanager's webhook format. `/ready` checks PostgreSQL and Redis; Docker uses it for application health. Prometheus scrapes `/metrics` internally and evaluates rules for downtime and repeated server errors. Caddy blocks `/ready` and `/metrics` from public access. Prometheus is exposed only on `127.0.0.1:9090`, so use an SSH tunnel to view it remotely.
+
+Create and test a PostgreSQL backup regularly:
+
+```bash
+scripts/backup.sh
+scripts/verify-backup.sh backups/bar108-YYYYMMDDTHHMMSSZ.dump
+```
+
+Schedule `scripts/backup.sh` and `scripts/verify-backup.sh` with cron or a systemd timer, copy backups to separate storage, and set a retention policy. The verification script restores into a temporary database and removes it; it does not overwrite production. The production `.env`, secrets, and backups are ignored by Git and Docker builds. The integration test runs migrations and concurrent order updates against PostgreSQL in CI.
 
 ---
 
 ## Testing
 
-Tests cover every layer independently — handlers, services, and soon the repository layer against a real test database.
+Handler and service tests run without external services. In CI, `BAR108_TEST_DATABASE_URL` enables a PostgreSQL integration test that applies migrations and checks concurrent order status updates.
 
 ```bash
 make test

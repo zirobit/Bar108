@@ -4,15 +4,16 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 )
 
 type Config struct {
-	AppPort string
-	AppEnv  string
+	AppPort                string
+	AppEnv                 string
 	RateLimitAuthPerMinute int64
-	DB      DBConfig
-	JWT     JWTConfig
-	Redis   RedisConfig
+	DB                     DBConfig
+	JWT                    JWTConfig
+	Redis                  RedisConfig
 }
 
 type DBConfig struct {
@@ -35,26 +36,34 @@ type JWTConfig struct {
 }
 
 func Load() (*Config, error) {
+	dbPassword, err := getSecretEnv("DB_PASSWORD")
+	if err != nil {
+		return nil, err
+	}
+	jwtSecret, err := getSecretEnv("JWT_SECRET")
+	if err != nil {
+		return nil, err
+	}
 
 	expiryHours, err := strconv.Atoi(getEnv("JWT_EXPIRY_HOURS", "24"))
-	if err != nil {
-		expiryHours = 24
+	if err != nil || expiryHours <= 0 {
+		return nil, fmt.Errorf("JWT_EXPIRY_HOURS must be a positive integer")
 	}
 
 	cfg := &Config{
-		AppPort: getEnv("APP_PORT", "8080"),
-		AppEnv:  getEnv("APP_ENV", "development"),
+		AppPort:                getEnv("APP_PORT", "8080"),
+		AppEnv:                 getEnv("APP_ENV", "development"),
 		RateLimitAuthPerMinute: getEnvInt64("RATE_LIMIT_AUTH_PER_MINUTE", 50),
 		DB: DBConfig{
 			Host:     getEnv("DB_HOST", "localhost"),
 			Port:     getEnv("DB_PORT", "5432"),
 			User:     getEnv("DB_USER", ""),
-			Password: getEnv("DB_PASSWORD", ""),
+			Password: dbPassword,
 			Name:     getEnv("DB_NAME", ""),
 			SSLMode:  getEnv("DB_SSLMODE", "disable"),
 		},
 		JWT: JWTConfig{
-			Secret:      getEnv("JWT_SECRET", ""),
+			Secret:      jwtSecret,
 			ExpiryHours: expiryHours,
 		},
 		Redis: RedisConfig{
@@ -75,8 +84,27 @@ func Load() (*Config, error) {
 	if cfg.JWT.Secret == "" {
 		return nil, fmt.Errorf("JWT_SECRET is required")
 	}
+	if cfg.AppEnv == "production" && len(cfg.JWT.Secret) < 32 {
+		return nil, fmt.Errorf("JWT_SECRET must be at least 32 bytes in production")
+	}
 
 	return cfg, nil
+}
+
+func getSecretEnv(key string) (string, error) {
+	value, hasValue := os.LookupEnv(key)
+	path, hasFile := os.LookupEnv(key + "_FILE")
+	if hasValue && hasFile {
+		return "", fmt.Errorf("%s and %s_FILE cannot both be set", key, key)
+	}
+	if !hasFile {
+		return value, nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("read %s_FILE: %w", key, err)
+	}
+	return strings.TrimRight(string(data), "\r\n"), nil
 }
 
 func getEnv(key, fallback string) string {

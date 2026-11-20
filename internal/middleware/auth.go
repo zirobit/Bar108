@@ -3,7 +3,11 @@ package middleware
 import (
 	"bar108/internal/apperror"
 	"bar108/internal/cache"
+	"bar108/internal/db"
 	"bar108/internal/jwt"
+	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -22,7 +26,15 @@ const (
 
 // AuthMiddleware now also checks token blacklist in Redis.
 // The cache client is injected — same pattern as everything else.
-func AuthMiddleware(jwtManager *jwt.Manager, cache *cache.Client) gin.HandlerFunc {
+type tokenBlacklist interface {
+	IsTokenBlacklisted(ctx context.Context, jti string) (bool, error)
+}
+
+type activeUserStore interface {
+	GetUserByID(ctx context.Context, id int32) (db.User, error)
+}
+
+func AuthMiddleware(jwtManager *jwt.Manager, cache tokenBlacklist, users activeUserStore) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
@@ -61,9 +73,24 @@ func AuthMiddleware(jwtManager *jwt.Manager, cache *cache.Client) gin.HandlerFun
 			c.Abort()
 			return
 		}
+		user, err := users.GetUserByID(c.Request.Context(), claims.UserID)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				apperror.Respond(c, apperror.ErrUnauthorized)
+			} else {
+				apperror.Respond(c, apperror.ErrInternal)
+			}
+			c.Abort()
+			return
+		}
+		if !user.IsActive {
+			apperror.Respond(c, apperror.ErrUnauthorized)
+			c.Abort()
+			return
+		}
 
-		c.Set(string(ContextUserID), claims.UserID)
-		c.Set(string(ContextRole), claims.Role)
+		c.Set(string(ContextUserID), user.ID)
+		c.Set(string(ContextRole), user.Role)
 		c.Set(string(ContextJTI), claims.ID) // ← store JTI for logout
 		c.Next()
 	}

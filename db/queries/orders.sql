@@ -69,6 +69,13 @@ SET
     status     = $2,
     updated_at = NOW()
 WHERE id = $1
+  AND (
+    (status = 'pending' AND $2 IN ('confirmed', 'cancelled')) OR
+    (status = 'confirmed' AND $2 IN ('preparing', 'cancelled')) OR
+    (status = 'preparing' AND $2 IN ('ready', 'cancelled')) OR
+    (status = 'ready' AND $2 IN ('out_for_delivery', 'cancelled')) OR
+    (status = 'out_for_delivery' AND $2 IN ('delivered', 'cancelled'))
+  )
 RETURNING *;
 
 -- name: AssignCourier :one
@@ -81,6 +88,7 @@ SET
     status     = 'out_for_delivery',
     updated_at = NOW()
 WHERE id = $1
+  AND status = 'ready'
 RETURNING *;
 
 -- name: CancelOrder :one
@@ -89,6 +97,7 @@ SET
     status     = 'cancelled',
     updated_at = NOW()
 WHERE id = $1
+  AND status NOT IN ('delivered', 'cancelled')
 RETURNING *;
 
 -- ORDER ITEMS
@@ -155,6 +164,8 @@ WHERE code = $1;
 UPDATE promotions
 SET used_count = used_count + 1
 WHERE id = $1
+  AND (usage_limit IS NULL OR used_count < usage_limit)
+  AND (expires_at IS NULL OR expires_at > NOW())
 RETURNING *;
 
 -- COURIERS

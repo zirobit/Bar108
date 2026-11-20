@@ -41,10 +41,7 @@ UPDATE users
 SET
     name = $2,
     phone = $3,
-    email = $4,
-    password_hash = $5,
-    bonus_points = $6,
-    is_active = $7
+    email = $4
 WHERE id = $1
 RETURNING *;
 

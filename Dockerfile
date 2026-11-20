@@ -1,4 +1,4 @@
-FROM golang:1.26.1-alpine AS builder
+FROM golang:1.26.11-alpine AS builder
 
 RUN apk add --no-cache git ca-certificates
 
@@ -30,4 +30,5 @@ COPY --chown=bar108:bar108 db/migrations ./db/migrations
 
 USER bar108
 EXPOSE 8080
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 CMD wget -q -O /dev/null http://127.0.0.1:8080/ready || exit 1
 CMD ["./server"]

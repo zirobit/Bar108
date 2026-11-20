@@ -18,6 +18,7 @@ SET
     status     = 'out_for_delivery',
     updated_at = NOW()
 WHERE id = $1
+  AND status = 'ready'
 RETURNING id, user_id, courier_id, promotion_id, status, total_price, discount_amount, final_price, notes, delivery_address, created_at, updated_at
 `
 
@@ -55,6 +56,7 @@ SET
     status     = 'cancelled',
     updated_at = NOW()
 WHERE id = $1
+  AND status NOT IN ('delivered', 'cancelled')
 RETURNING id, user_id, courier_id, promotion_id, status, total_price, discount_amount, final_price, notes, delivery_address, created_at, updated_at
 `
 
@@ -676,6 +678,8 @@ const incrementPromotionUsage = `-- name: IncrementPromotionUsage :one
 UPDATE promotions
 SET used_count = used_count + 1
 WHERE id = $1
+  AND (usage_limit IS NULL OR used_count < usage_limit)
+  AND (expires_at IS NULL OR expires_at > NOW())
 RETURNING id, code, discount_type, discount_value, usage_limit, used_count, expires_at, created_at
 `
 
@@ -728,6 +732,13 @@ SET
     status     = $2,
     updated_at = NOW()
 WHERE id = $1
+  AND (
+    (status = 'pending' AND $2 IN ('confirmed', 'cancelled')) OR
+    (status = 'confirmed' AND $2 IN ('preparing', 'cancelled')) OR
+    (status = 'preparing' AND $2 IN ('ready', 'cancelled')) OR
+    (status = 'ready' AND $2 IN ('out_for_delivery', 'cancelled')) OR
+    (status = 'out_for_delivery' AND $2 IN ('delivered', 'cancelled'))
+  )
 RETURNING id, user_id, courier_id, promotion_id, status, total_price, discount_amount, final_price, notes, delivery_address, created_at, updated_at
 `
 

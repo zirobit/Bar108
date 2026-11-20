@@ -68,6 +68,16 @@ func validateUserID(id int32) error {
 	return nil
 }
 func validateRequiredUserFields(name, phone, email, passHash string) error {
+	if err := validateUserProfileFields(name, phone, email); err != nil {
+		return err
+	}
+	if strings.TrimSpace(passHash) == "" {
+		return ErrEmptyPasswordHash
+	}
+	return nil
+}
+
+func validateUserProfileFields(name, phone, email string) error {
 	if strings.TrimSpace(name) == "" {
 		return ErrEmptyUserName
 	}
@@ -84,9 +94,6 @@ func validateRequiredUserFields(name, phone, email, passHash string) error {
 		return ErrInvalidUserEmail
 	}
 
-	if strings.TrimSpace(passHash) == "" {
-		return ErrEmptyPasswordHash
-	}
 	return nil
 }
 func (s *userService) GetUserByID(ctx context.Context, id int32) (db.User, error) {
@@ -167,11 +174,8 @@ func (s *userService) UpdateUser(ctx context.Context, arg db.UpdateUserParams) (
 	if err := validateUserID(arg.ID); err != nil {
 		return db.User{}, err
 	}
-	if err := validateRequiredUserFields(arg.Name, arg.Phone, arg.Email, arg.PasswordHash); err != nil {
+	if err := validateUserProfileFields(arg.Name, arg.Phone, arg.Email); err != nil {
 		return db.User{}, err
-	}
-	if arg.BonusPoints < 0 {
-		return db.User{}, ErrNegativeBonusPoints
 	}
 	user, err := s.store.UpdateUser(ctx, arg)
 	if err != nil {

@@ -39,6 +39,7 @@ var (
 	ErrAlreadyInactive = &AppError{Code: http.StatusConflict, Message: "user is already inactive"}
 	ErrHasActiveOrders = &AppError{Code: http.StatusConflict, Message: "user has active orders and cannot be deactivated"}
 	ErrAlreadyExists   = &AppError{Code: http.StatusConflict, Message: "resource already exists"}
+	ErrOrderConflict   = &AppError{Code: http.StatusConflict, Message: "order state changed; refresh and try again"}
 
 	// 401 / 403 — auth errors (used in Phase 5)
 	ErrUnauthorized = &AppError{Code: http.StatusUnauthorized, Message: "unauthorized"}

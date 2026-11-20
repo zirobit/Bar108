@@ -3,7 +3,7 @@
 # ==========================================
 
 # Load .env file so make commands can use env vars
-include .env
+-include .env
 export
 
 APP_NAME=bar108
@@ -57,6 +57,10 @@ docker-build:
 docker-up:
 	docker compose up -d
 
+## db-up: start PostgreSQL and Redis for local development
+db-up:
+	docker compose up -d db redis
+
 ## docker-down: stop all services
 docker-down:
 	docker compose down
@@ -67,18 +71,8 @@ docker-logs:
 
 ## docker-restart: rebuild and restart the app
 docker-restart:
-	docker compose up -d --build app## migrate: run SQL migrations
-migrate:
-	sed '/^-- +goose Down/,$$d' db/migrations/000001_init.sql | docker exec -i bar108_db psql -U $(DB_USER) -d $(DB_NAME)
-	sed '/^-- +goose Down/,$$d' db/migrations/000002_add_is_active_to_users.sql | docker exec -i bar108_db psql -U $(DB_USER) -d $(DB_NAME)
-	sed '/^-- +goose Down/,$$d' db/migrations/000003_add_role_to_users.sql | docker exec -i bar108_db psql -U $(DB_USER) -d $(DB_NAME)
-	sed '/^-- +goose Down/,$$d' db/migrations/000004_seed_menu_items.sql | docker exec -i bar108_db psql -U $(DB_USER) -d $(DB_NAME)
-migrate-up:
-	migrate -path db/migrations -database "$(DB_URL)" up
-migrate-down:
-	migrate -path db/migrations -database "$(DB_URL)" down
-new-migrate:
-	migrate create -ext sql -dir db/migrations -seq add_orders_index
+	docker compose up -d --build app
+
 ## db-shell: open interactive postgres shell
 db-shell:
 	docker exec -it bar108_db psql -U $(DB_USER) -d $(DB_NAME)
@@ -117,4 +111,4 @@ help:
 	@echo "Available commands:"
 	@sed -n 's/^##//p' $(MAKEFILE_LIST) | column -t -s ':' | sed -e 's/^/ /'
 
-.PHONY: run build clean fmt lint vet check help migrate db-shell sqlc migrate-up migrate-down test test-coverage generate mocks jwt docker-build docker-up docker-down docker-logs docker-restart 
+.PHONY: run build clean fmt lint vet check help db-shell sqlc test test-coverage generate mocks jwt docker-build docker-up db-up docker-down docker-logs docker-restart

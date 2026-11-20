@@ -297,22 +297,16 @@ UPDATE users
 SET
     name = $2,
     phone = $3,
-    email = $4,
-    password_hash = $5,
-    bonus_points = $6,
-    is_active = $7
+    email = $4
 WHERE id = $1
 RETURNING id, name, phone, email, password_hash, bonus_points, created_at, is_active, role
 `
 
 type UpdateUserParams struct {
-	ID           int32  `json:"id"`
-	Name         string `json:"name"`
-	Phone        string `json:"phone"`
-	Email        string `json:"email"`
-	PasswordHash string `json:"password_hash"`
-	BonusPoints  int32  `json:"bonus_points"`
-	IsActive     bool   `json:"is_active"`
+	ID    int32  `json:"id"`
+	Name  string `json:"name"`
+	Phone string `json:"phone"`
+	Email string `json:"email"`
 }
 
 func (q *Queries) UpdateUser(ctx context.Context, arg UpdateUserParams) (User, error) {
@@ -321,9 +315,6 @@ func (q *Queries) UpdateUser(ctx context.Context, arg UpdateUserParams) (User, e
 		arg.Name,
 		arg.Phone,
 		arg.Email,
-		arg.PasswordHash,
-		arg.BonusPoints,
-		arg.IsActive,
 	)
 	var i User
 	err := row.Scan(

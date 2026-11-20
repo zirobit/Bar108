@@ -1,0 +1,17 @@
+groups:
+  - name: bar108
+    rules:
+      - alert: Bar108Unavailable
+        expr: up{job="bar108"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Bar108 API metrics endpoint is unavailable
+      - alert: Bar108HighServerErrorCount
+        expr: sum(increase(bar108_http_requests_total{status=~"5.."}[5m])) > 5
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Bar108 returned more than five server errors in five minutes

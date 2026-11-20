@@ -1,0 +1,10 @@
+{$BAR108_DOMAIN} {
+	encode zstd gzip
+	@internal path /ready /metrics
+	respond @internal 404
+	reverse_proxy app:8080
+	log {
+		output stdout
+		format json
+	}
+}

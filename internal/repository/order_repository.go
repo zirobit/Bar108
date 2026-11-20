@@ -6,8 +6,9 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"strconv"
 	"time"
+
+	"github.com/shopspring/decimal"
 )
 
 // =============================================
@@ -114,7 +115,7 @@ func (r *orderRepository) PlaceOrder(ctx context.Context, input PlaceOrderInput)
 	// STEP 1 — Validate items + calculate total price.
 	// Inside the transaction so PostgreSQL locks the rows we read —
 	// no item can be deleted between our check and our INSERT.
-	var totalPrice float64
+	totalPrice := decimal.Zero
 	var itemParams []db.CreateOrderItemParams
 
 	for _, item := range input.Items {
@@ -134,12 +135,15 @@ func (r *orderRepository) PlaceOrder(ctx context.Context, input PlaceOrderInput)
 		// strconv.ParseFloat — correct tool for string → float64.
 		// Returns an error we can handle, unlike fmt.Sscanf.
 		// 64 = we want float64 precision.
-		price, err := strconv.ParseFloat(menuItem.Price, 64)
+		price, err := decimal.NewFromString(menuItem.Price)
 		if err != nil {
 			return PlaceOrderResult{}, fmt.Errorf("PlaceOrder parse price for item %d: %w", item.MenuItemID, err)
 		}
+		if !price.IsPositive() || !price.Equal(price.Round(2)) {
+			return PlaceOrderResult{}, fmt.Errorf("PlaceOrder invalid price for item %d", item.MenuItemID)
+		}
 
-		totalPrice += price * float64(item.Quantity)
+		totalPrice = totalPrice.Add(price.Mul(decimal.NewFromInt(int64(item.Quantity))))
 
 		itemParams = append(itemParams, db.CreateOrderItemParams{
 			MenuItemID: item.MenuItemID,
@@ -152,7 +156,7 @@ func (r *orderRepository) PlaceOrder(ctx context.Context, input PlaceOrderInput)
 	}
 
 	// STEP 2 — Apply promo code if provided.
-	var discountAmount float64
+	discountAmount := decimal.Zero
 	var promotionID sql.NullInt32
 
 	if input.PromoCode != "" {
@@ -178,21 +182,24 @@ func (r *orderRepository) PlaceOrder(ctx context.Context, input PlaceOrderInput)
 		}
 
 		// Parse discount value — strconv, not fmt.Sscanf.
-		promoValue, err := strconv.ParseFloat(promo.DiscountValue, 64)
+		promoValue, err := decimal.NewFromString(promo.DiscountValue)
 		if err != nil {
 			return PlaceOrderResult{}, fmt.Errorf("PlaceOrder parse promo value: %w", err)
+		}
+		if promoValue.IsNegative() {
+			return PlaceOrderResult{}, fmt.Errorf("PlaceOrder negative promo value")
 		}
 
 		switch promo.DiscountType {
 		case "percentage":
-			// e.g. 10% off 350.00 → 35.00 discount
-			discountAmount = totalPrice * (promoValue / 100)
+			discountAmount = totalPrice.Mul(promoValue).Div(decimal.NewFromInt(100)).Round(2)
 		case "fixed":
-			// e.g. 50 RUB off — but never more than the total
-			discountAmount = promoValue
-			if discountAmount > totalPrice {
-				discountAmount = totalPrice
-			}
+			discountAmount = promoValue.Round(2)
+		default:
+			return PlaceOrderResult{}, fmt.Errorf("PlaceOrder unknown promo type %q", promo.DiscountType)
+		}
+		if discountAmount.GreaterThan(totalPrice) {
+			discountAmount = totalPrice
 		}
 
 		promotionID = sql.NullInt32{Int32: promo.ID, Valid: true}
@@ -201,20 +208,23 @@ func (r *orderRepository) PlaceOrder(ctx context.Context, input PlaceOrderInput)
 		// If anything fails later, this rolls back too —
 		// the promo code usage count stays accurate.
 		if _, err := qtx.IncrementPromotionUsage(ctx, promo.ID); err != nil {
+			if err == sql.ErrNoRows {
+				return PlaceOrderResult{}, apperror.ErrPromoExhausted
+			}
 			return PlaceOrderResult{}, fmt.Errorf("PlaceOrder increment promo usage: %w", err)
 		}
 	}
 
 	// STEP 3 — Calculate final price.
-	finalPrice := totalPrice - discountAmount
+	finalPrice := totalPrice.Sub(discountAmount)
 
 	// strconv.FormatFloat — converts float64 back to string.
 	// 'f' = decimal notation (not scientific like 3.5e+2).
 	//  2  = 2 decimal places.
 	// 64  = float64 source precision.
-	totalStr := strconv.FormatFloat(totalPrice, 'f', 2, 64)
-	discountStr := strconv.FormatFloat(discountAmount, 'f', 2, 64)
-	finalStr := strconv.FormatFloat(finalPrice, 'f', 2, 64)
+	totalStr := totalPrice.StringFixed(2)
+	discountStr := discountAmount.StringFixed(2)
+	finalStr := finalPrice.StringFixed(2)
 
 	// STEP 4 — Insert the order row.
 	order, err := qtx.CreateOrder(ctx, db.CreateOrderParams{
@@ -349,7 +359,7 @@ func (r *orderRepository) UpdateOrderStatus(ctx context.Context, id int32, statu
 	})
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return db.Order{}, apperror.ErrOrderNotFound
+			return db.Order{}, apperror.ErrOrderConflict
 		}
 		return db.Order{}, fmt.Errorf("UpdateOrderStatus: %w", err)
 	}
@@ -386,7 +396,7 @@ func (r *orderRepository) AssignCourier(ctx context.Context, orderID int32, cour
 	})
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return db.Order{}, apperror.ErrOrderNotFound
+			return db.Order{}, apperror.ErrOrderConflict
 		}
 		return db.Order{}, fmt.Errorf("AssignCourier: %w", err)
 	}
@@ -420,7 +430,7 @@ func (r *orderRepository) CancelOrder(ctx context.Context, id int32) (db.Order, 
 	order, err := qtx.CancelOrder(ctx, id)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return db.Order{}, apperror.ErrOrderNotFound
+			return db.Order{}, apperror.ErrOrderConflict
 		}
 		return db.Order{}, fmt.Errorf("CancelOrder: %w", err)
 	}

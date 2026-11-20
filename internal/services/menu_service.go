@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/shopspring/decimal"
 )
 
 type menuStore interface {
@@ -69,11 +71,15 @@ func validateMenuItemName(name string) error {
 }
 func validatePrice(price string) error {
 	trimmed := strings.TrimSpace(price)
-	if trimmed == "" || trimmed == "0" || trimmed == "0.00" {
-		return ErrZeroPrice
+	amount, err := decimal.NewFromString(trimmed)
+	if err != nil || !amount.Equal(amount.Round(2)) {
+		return apperror.ErrInvalidInput
 	}
-	if strings.HasPrefix(trimmed, "-") {
+	if amount.IsNegative() {
 		return ErrNegativePrice
+	}
+	if amount.IsZero() {
+		return ErrZeroPrice
 	}
 	return nil
 

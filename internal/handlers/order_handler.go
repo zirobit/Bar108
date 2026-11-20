@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bar108/internal/apperror"
+	"bar108/internal/db"
 	"bar108/internal/middleware"
 	"bar108/internal/repository"
 	"net/http"
@@ -27,7 +28,7 @@ type placeOrderRequest struct {
 		MenuItemID int32 `json:"menu_item_id" binding:"required"`
 		Quantity   int32 `json:"quantity"     binding:"required"`
 	} `json:"items" binding:"required"`
-	UserID          int32  `json:"user_id"          binding:"required"`
+	UserID          int32  `json:"user_id"`
 	PromoCode       string `json:"promo_code"`       // optional
 	DeliveryAddress string `json:"delivery_address"` // optional
 	Notes           string `json:"notes"`            // optional
@@ -55,6 +56,15 @@ func (h *OrderHandler) PlaceOrder(c *gin.Context) {
 		apperror.Respond(c, apperror.ErrInvalidInput)
 		return
 	}
+	currentUserID, ok := middleware.GetUserID(c)
+	if !ok {
+		apperror.Respond(c, apperror.ErrUnauthorized)
+		return
+	}
+	if req.UserID != 0 && req.UserID != currentUserID {
+		apperror.Respond(c, apperror.ErrForbidden)
+		return
+	}
 
 	// Convert request items to repository input type.
 	items := make([]repository.OrderItemInput, len(req.Items))
@@ -66,7 +76,7 @@ func (h *OrderHandler) PlaceOrder(c *gin.Context) {
 	}
 
 	input := repository.PlaceOrderInput{
-		UserID:          req.UserID,
+		UserID:          currentUserID,
 		Items:           items,
 		PromoCode:       req.PromoCode,
 		DeliveryAddress: req.DeliveryAddress,
@@ -99,9 +109,8 @@ func (h *OrderHandler) GetOrderByID(c *gin.Context) {
 		return
 	}
 
-	order, err := h.service.GetOrderByID(c.Request.Context(), id)
-	if err != nil {
-		apperror.Respond(c, err)
+	order, ok := h.authorizedOrder(c, id)
+	if !ok {
 		return
 	}
 
@@ -127,6 +136,9 @@ func (h *OrderHandler) GetOrderByID(c *gin.Context) {
 func (h *OrderHandler) GetOrderStatusHistory(c *gin.Context) {
 	id, ok := parseID(c)
 	if !ok {
+		return
+	}
+	if _, ok := h.authorizedOrder(c, id); !ok {
 		return
 	}
 
@@ -215,6 +227,9 @@ func (h *OrderHandler) GetOrderItems(c *gin.Context) {
 	if !ok {
 		return
 	}
+	if _, ok := h.authorizedOrder(c, id); !ok {
+		return
+	}
 
 	items, err := h.service.GetOrderItems(c.Request.Context(), id)
 	if err != nil {
@@ -223,6 +238,25 @@ func (h *OrderHandler) GetOrderItems(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"data": items})
+}
+
+func (h *OrderHandler) authorizedOrder(c *gin.Context, id int32) (db.GetOrderByIDRow, bool) {
+	userID, ok := middleware.GetUserID(c)
+	if !ok {
+		apperror.Respond(c, apperror.ErrUnauthorized)
+		return db.GetOrderByIDRow{}, false
+	}
+	order, err := h.service.GetOrderByID(c.Request.Context(), id)
+	if err != nil {
+		apperror.Respond(c, err)
+		return db.GetOrderByIDRow{}, false
+	}
+	role, _ := middleware.GetRole(c)
+	if role != "admin" && order.UserID != userID {
+		apperror.Respond(c, apperror.ErrForbidden)
+		return db.GetOrderByIDRow{}, false
+	}
+	return order, true
 }
 
 // UpdateOrderStatus handles PATCH /orders/:id/status — admin only.

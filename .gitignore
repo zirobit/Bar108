@@ -2,6 +2,9 @@
 bin/
 *.exe
 .env
+.env.production
+secrets/
+backups/
 #Go tooling 
 vendor/
 #macOS junk

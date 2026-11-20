@@ -59,6 +59,8 @@ func (m *Manager) Verify(tokenStr string) (*Claims, error) {
 			}
 			return m.secret, nil
 		},
+		jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}),
+		jwt.WithExpirationRequired(),
 	)
 	if err != nil {
 		return nil, err

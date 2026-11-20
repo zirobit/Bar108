@@ -6,6 +6,7 @@ import (
 	"bar108/internal/handlers"
 	jwtpkg "bar108/internal/jwt"
 	"bar108/internal/middleware"
+	"bar108/internal/observability"
 	"context"
 	"database/sql"
 	"log"
@@ -32,6 +33,7 @@ func New(cfg *config.Config, db *sql.DB, jwtManager *jwtpkg.Manager) *Server {
 	router := gin.New()
 	router.Use(gin.Recovery())
 	router.Use(gin.Logger())
+	router.Use(observability.Middleware())
 
 	if err := router.SetTrustedProxies([]string{"127.0.0.1"}); err != nil {
 		log.Fatalf("server: failed to set trusted proxies: %v", err)
@@ -74,6 +76,20 @@ func (s *Server) setupRoutes(cfg *config.Config, db *sql.DB, jwtManager *jwtpkg.
 	s.router.GET("/ping", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok", "message": "pong"})
 	})
+	s.router.GET("/metrics", observability.Handler())
+	s.router.GET("/ready", func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
+		defer cancel()
+		if err := db.PingContext(ctx); err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "unavailable"})
+			return
+		}
+		if err := cacheClient.Ping(ctx); err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "unavailable"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	})
 
 	// ── Public routes (no auth) ──────────────────────────
 	s.router.GET("/menu", menuHandler.GetAllMenuItems)
@@ -87,7 +103,7 @@ func (s *Server) setupRoutes(cfg *config.Config, db *sql.DB, jwtManager *jwtpkg.
 
 	// Logout — requires auth
 	authed := s.router.Group("")
-	authed.Use(middleware.AuthMiddleware(jwtManager, cacheClient))
+	authed.Use(middleware.AuthMiddleware(jwtManager, cacheClient, userRepo))
 	authed.POST("/auth/logout", authHandler.Logout)
 	{
 		// Any logged-in user
@@ -99,7 +115,6 @@ func (s *Server) setupRoutes(cfg *config.Config, db *sql.DB, jwtManager *jwtpkg.
 		authed.GET("/users/:id/orders", orderHandler.GetOrdersByUserID)
 		authed.GET("/users/:id", userHandler.GetUserByID)
 		authed.PUT("/users/:id", userHandler.UpdateUser)
-		authed.PATCH("/users/:id/bonus", userHandler.UpdateUserBonusPoints)
 
 		// ── Admin only ───────────────────────────────────
 		admin := authed.Group("")
@@ -118,6 +133,7 @@ func (s *Server) setupRoutes(cfg *config.Config, db *sql.DB, jwtManager *jwtpkg.
 			admin.GET("/users/active", userHandler.GetActiveUsers)
 			admin.PATCH("/users/:id/activate", userHandler.ActivateUser)
 			admin.PATCH("/users/:id/deactivate", userHandler.DeactivateUser)
+			admin.PATCH("/users/:id/bonus", userHandler.UpdateUserBonusPoints)
 
 			admin.GET("/couriers", orderHandler.GetAllCouriers)
 			admin.GET("/couriers/available", orderHandler.GetAvailableCouriers)

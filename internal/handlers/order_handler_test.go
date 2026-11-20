@@ -223,6 +223,31 @@ func TestOrderHandler_GetOrderByID(t *testing.T) {
 	}
 }
 
+func TestOrderHandler_RejectsOtherCustomersOrder(t *testing.T) {
+	for _, path := range []string{"/orders/2", "/orders/2/items", "/orders/2/track"} {
+		t.Run(path, func(t *testing.T) {
+			r, mockSvc := setupOrderHandlerAs(t, 1, "customer")
+			mockSvc.EXPECT().GetOrderByID(gomock.Any(), int32(2)).
+				Return(db.GetOrderByIDRow{ID: 2, UserID: 2}, nil)
+			w := doRequest(r, http.MethodGet, path, nil)
+			if w.Code != http.StatusForbidden {
+				t.Fatalf("got %d, want 403: %s", w.Code, w.Body.String())
+			}
+		})
+	}
+}
+
+func TestOrderHandler_RejectsOtherUserIDOnCreate(t *testing.T) {
+	r, _ := setupOrderHandlerAs(t, 1, "customer")
+	w := doRequest(r, http.MethodPost, "/orders", map[string]interface{}{
+		"user_id": 2,
+		"items":   []map[string]interface{}{{"menu_item_id": 1, "quantity": 1}},
+	})
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("got %d, want 403: %s", w.Code, w.Body.String())
+	}
+}
+
 // =============================================
 // GET /orders/:id/track
 // =============================================
@@ -239,6 +264,9 @@ func TestOrderHandler_GetOrderStatusHistory(t *testing.T) {
 			url:  "/orders/1/track",
 			setupMock: func(m *mocks.MockOrderService) {
 				m.EXPECT().
+					GetOrderByID(gomock.Any(), int32(1)).
+					Return(db.GetOrderByIDRow{ID: 1, UserID: 1}, nil)
+				m.EXPECT().
 					GetOrderStatusHistory(gomock.Any(), int32(1)).
 					Return([]db.OrderStatusHistory{
 						{OrderID: 1, Status: "pending"},
@@ -252,8 +280,8 @@ func TestOrderHandler_GetOrderStatusHistory(t *testing.T) {
 			url:  "/orders/999/track",
 			setupMock: func(m *mocks.MockOrderService) {
 				m.EXPECT().
-					GetOrderStatusHistory(gomock.Any(), int32(999)).
-					Return(nil, apperror.ErrOrderNotFound)
+					GetOrderByID(gomock.Any(), int32(999)).
+					Return(db.GetOrderByIDRow{}, apperror.ErrOrderNotFound)
 			},
 			wantStatus: http.StatusNotFound,
 		},

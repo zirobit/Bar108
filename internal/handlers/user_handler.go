@@ -31,12 +31,9 @@ type createUserRequest struct {
 }
 
 type updateUserRequest struct {
-	Name         string `json:"name"          binding:"required"`
-	Phone        string `json:"phone"         binding:"required"`
-	Email        string `json:"email"         binding:"required"`
-	PasswordHash string `json:"password_hash" binding:"required"`
-	BonusPoints  int32  `json:"bonus_points"`
-	IsActive     bool   `json:"is_active"`
+	Name  string `json:"name" binding:"required"`
+	Phone string `json:"phone" binding:"required"`
+	Email string `json:"email" binding:"required"`
 }
 
 type updateBonusPointsRequest struct {
@@ -148,13 +145,10 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 		return
 	}
 	arg := db.UpdateUserParams{
-		ID:           id,
-		Name:         req.Name,
-		Phone:        req.Phone,
-		Email:        req.Email,
-		PasswordHash: req.PasswordHash,
-		BonusPoints:  req.BonusPoints,
-		IsActive:     req.IsActive,
+		ID:    id,
+		Name:  req.Name,
+		Phone: req.Phone,
+		Email: req.Email,
 	}
 	user, err := h.service.UpdateUser(c.Request.Context(), arg)
 	if err != nil {
