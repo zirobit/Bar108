@@ -17,6 +17,19 @@ Bar 108 is a Go HTTP API for a restaurant ordering workflow. It supports custome
 
 The code runs locally or with Docker Compose. A separate Compose file is a starting point for deployment on one server. A green CI run confirms the checked code builds and passes its tests; it does not confirm that a particular server, backup schedule, or alert receiver is configured.
 
+## Engineering highlights
+
+| 33 HTTP routes | 42 test functions + 36 subtests | 12 CI verification steps | 6 production services |
+| :---: | :---: | :---: | :---: |
+| Auth, menu, orders, users, and couriers | Unit, handler, security, and PostgreSQL integration coverage | Format, vet, lint, race, build, container, and configuration checks | API, PostgreSQL, Redis, Caddy, Prometheus, and Alertmanager |
+
+- Implements a six-stage order lifecycle with SQL-guarded transitions so concurrent updates cannot both apply the same state change.
+- Uses four versioned Goose migrations and sqlc-generated, type-safe PostgreSQL access instead of handwritten row mapping.
+- Revalidates account status and role on authenticated requests, supports Redis-backed token revocation, and fails protected operations closed when the security dependency is unavailable.
+- Packages HTTPS termination, health checks, metrics, alert rules, secret files, database backup, and restore verification for a reproducible single-server deployment.
+
+These figures describe the current repository and are intended to be auditable from the source and CI workflow; they are not synthetic traffic or latency claims.
+
 ## Architecture
 
 <img src="docs/architecture.svg" width="100%" alt="Bar 108 request and data architecture" />
